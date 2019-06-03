@@ -26,14 +26,19 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   sigma <- rep(0.5, J) # Population-level discount
   
   # Initializing table info
+  sp.vec <- vector("list", length=J)
   n <- rowSums(Y) # The number of individuals in each population
   tab <- vector("list", length=J) # List to hold table indicators for each population
-  for (j in 1:J) {
-    tab[[j]] <- rep(0, n[j])
-  }
   t.c <- vector("list", length=J) # Table counts (and species corresponding to each table)
   n.tab <- rep(0, J) # Number of tables in each population
-  n.s.tab <- matrix(0, J, K) # Number of tables for a given species in each population
+  n.s.tab <- matrix(1, J, K) # Number of tables for a given species in each population
+  for (j in 1:J) {
+    # Initially one table for each species
+    sp.vec[[j]] <- rep(1:K, Y[j,])
+    tab[[j]] <- rep(1:sum(Y[j,]>0), Y[j,][Y[j,]>0])
+    t.c[[j]] <- cbind((1:K)[Y[j,]>0], Y[j,][Y[j,]>0])
+    n.tab[j] <- NROW(t.c[[j]])
+  }
   
   gamma.s <- rep(0, n.iter)
   alpha.s <- rep(0, n.iter)
@@ -42,33 +47,35 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   
   # Loop over MCMC iterations
   for (i in 1:(n.burn+n.iter)) {
+    idx <- i - n.burn
+    
     if (!quiet & i==1) cat("Beginning burn-in:", "\n")
     if (!quiet & i==n.burn+1) cat("Beginning sampling:", "\n")
     if (!quiet & i%%100==0) cat("\t", i, "\n")
     
     # Loop over populations
     for (j in 1:J) {
-      sp.vec <- rep(1:J, Y[j,])
       # Loop over individuals in a population
       for (p in 1:n[j]){
-        sp.cur <- sp.vec[p]
+        sp.cur <- sp.vec[[j]][p]
         # Remove current individual from its table
         t.cur <- tab[[j]][p]
-        t.c[[j]][t.cur,] <- t.c[[j]][t.cur,] - 1
-        if (t.c[[j]][t.cur,]==0) {
+        t.c[[j]][t.cur,2] <- t.c[[j]][t.cur,2] - 1
+        if (t.c[[j]][t.cur,2]==0) {
           # Drop table and make adjustments
           t.c[[j]] <- t.c[[j]][-t.cur,]
-          tab[[j]][t.c[[j]]>t.cur] <- tab[[j]][t.c[[j]]>t.cur] - 1
+          tab[[j]][tab[[j]]>t.cur] <- tab[[j]][tab[[j]]>t.cur] - 1
           n.tab[j] <- n.tab[j] - 1
           n.s.tab[j, sp.cur] <- n.s.tab[j, sp.cur] - 1
         }
         
         # Reassign individual to new or existing table
         num <- (theta[j]+n.tab[j]*sigma[j])*(n.s.tab[j, sp.cur]-alpha)
-        den <- (gamma+sum(n.tab))*(sum(tab[[j]][tab[[j]][1,]==sp.cur,2])-n.s.tab[j, sp.cur]) +
+        den <- (gamma+sum(n.tab))*(Y[j,sp.cur]-1-n.s.tab[j, sp.cur]) +
                                                   theta[j]+n.tab[j]*sigma[j]
         is.new <- rbinom(1, 1, num/den)
-        if (is.new) {
+        #if (is.na(is.new)) browser()
+        if (is.new==1) {
           # Allocate new table
           t.c[[j]] <- rbind(t.c[[j]], c(sp.cur, 1))
           n.tab[j] <- n.tab[j] + 1
@@ -77,7 +84,7 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
         } else {
           # Sample existing table (from proper species)
           freq.t <- ifelse(t.c[[j]][,1]==sp.cur, (t.c[[j]][,2]-sigma[j])/(theta[j]+n[j]-1), 0)
-          wh.t <- sample(1:n[j], 1, prob=freq.t)
+          wh.t <- sample(1:n.tab[j], 1, prob=freq.t)
           t.c[[j]][wh.t, 2] <- t.c[[j]][wh.t, 2] + 1
           tab[[j]][p] <- wh.t
         }
@@ -89,19 +96,19 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
       sigma[j] <- s.local$sigma
       
       if (i>n.burn) {
-        theta.s[i,j] <- theta[j]
-        sigma.s[i,j] <- sigma[j]
+        theta.s[idx,j] <- theta[j]
+        sigma.s[idx,j] <- sigma[j]
       }
     }
     
     # Sample top-level PY parameters
-    s.top <- py_top()
+    s.top <- py_top(gamma, alpha)
     gamma <- s.top$gamma
     alpha <- s.top$alpha
     
     if (i>n.burn) {
-      gamma.s[i] <- gamma
-      alpha.s[i] <- alpha
+      gamma.s[idx] <- gamma
+      alpha.s[idx] <- alpha
     }
   }
   
