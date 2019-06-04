@@ -20,8 +20,8 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   K <- NCOL(Y) # Number of distinct species in joint sample
   
   # Initializing PY parameters
-  gamma <- 0.1 # Top-level concentation
-  alpha <- 0.5 # Top-level discount
+  gamma <- 3 # Top-level concentation
+  alpha <- 0.8 # Top-level discount
   theta <- rep(1000, J) # Population-level concentration
   sigma <- rep(0.5, J) # Population-level discount
   
@@ -72,17 +72,15 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
         }
         
         # Reassign individual to new or existing table
-        new.t <- (theta[j]+n.tab[j]*sigma[j])*(n.s.tab[j,sp.cur]-alpha)/
-                  ((theta[j]+n[j]-1)*(gamma+sum(n.tab)))
-        freq.t <- ifelse(t.c[[j]][,1]==sp.cur, (t.c[[j]][,2]-sigma[j])/(theta[j]+n[j]-1), 0)
-        prob.unsc <- c(freq.t, new.t)
-        wh.t <- sample(1:length(prob.unsc), 1, prob=prob.unsc)
-        #num <- (theta[j]+n.tab[j]*sigma[j])*(n.s.tab[j, sp.cur]-alpha)
-        #den <- (gamma+sum(n.tab))*(Y[j,sp.cur]-1-n.s.tab[j, sp.cur]) +
-        #                                          theta[j]+n.tab[j]*sigma[j]
-        #is.new <- rbinom(1, 1, num/den)
+        #new.t <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)/
+        #          ((theta[j]+n[j]-1)*(gamma+sum(n.tab)))
+        #prob.unsc <- c(freq.t, new.t)
+        num <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[, sp.cur])-alpha)
+        den <- (gamma+sum(n.tab))*(Y[j,sp.cur]-1-n.s.tab[j, sp.cur]*sigma[j]) +
+                                (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)
+        is.new <- rbinom(1, 1, num/den)
         #if (is.na(is.new)) browser()
-        if (wh.t==length(prob.unsc)) {
+        if (is.new) {
           # Allocate new table
           t.c[[j]] <- rbind(t.c[[j]], c(sp.cur, 1))
           n.tab[j] <- n.tab[j] + 1
@@ -90,6 +88,8 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
           tab[[j]][p] <- n.tab[j]
         } else {
           # Sample existing table (from proper species)
+          freq.t <- ifelse(t.c[[j]][,1]==sp.cur, (t.c[[j]][,2]-sigma[j])/(theta[j]+n[j]-1), 0)
+          wh.t <- sample(1:length(freq.t), 1, prob=freq.t)
           t.c[[j]][wh.t, 2] <- t.c[[j]][wh.t, 2] + 1
           tab[[j]][p] <- wh.t
         }
