@@ -139,5 +139,63 @@ py_top <- function(gamma.c, alpha.c) {
   return(list(gamma=gamma, alpha=alpha))
 }
 
+#' Sample the concentration parameter hierarchical in Pitman-Yor process
+#'
+#' @param conc Current value of the concentration parameter
+#' @param J Number of populations
+#' @param n 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
+  
+  # Sample auxiliary Beta variables
+  q <- rbeta(length(n), conc, n)
+  Q <- 1/p.scale - sum(log(q))
+  
+  conc <- map_conc(conc, p.shape, Q, n.tab, dsct)
+  conc <- slice_conc()
+  
+  return(conc)
+}
+
+
+#' Inverse digamma function
+#'
+#' @param x The value at which to evaluate the inverse of the digamma function 
+#'
+#' @return The inverse of the digamma function evaluated at x
+#' @export
+#'
+#' @examples
+inv_digamma <- function(x) {
+  if (x<(-2.22)) {
+    g <- -1/(x-digamma(1))
+  } else {
+    g <- exp(x)+0.5
+  }
+  
+  for(i in 1:4) {
+    g <- g - (digamma(x)-x)/trigamma(x)
+  }
+  
+  return(g)
+}
+
+
+map_conc <- function(conc, p.shape, Q, n.tab, dsct) {
+  J <- length(n.tab)
+  p <- sum(digamma(n.tab+conc/dsct))
+  p <- p/J + dsct*(p.shape-1)/(conc*J) - dsct*Q/J
+  return(dsct*inv_digamma(p))
+}
+
+prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
+  log_prob <- -conc*Q+(p.shape-1)*log(conc)
+  log_prob <- log_prob + sum(gamma(n.tab+conc/dsct) - gamma(conc/dsct))
+  return(log_prob)
+}
 
 
