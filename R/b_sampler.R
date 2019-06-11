@@ -156,13 +156,8 @@ samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
   Q <- 1/p.scale - sum(log(q))
   
   conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
-<<<<<<< HEAD
-  p.map <- prob_conc(conc.map, p.shape, Q, n.tab, dsct)
-  conc.ret <- slice_conc(conc.map, p.map) #TODO
-=======
-  conc <- slice_conc(conc.map, p.shape, Q, n.tab, dsct)
->>>>>>> 8f8ab243dcd7a8c881440e402084ad8475262c4c
-  
+  conc.ret <- slice_conc(conc.map, p.shape, Q, n.tab, dsct)
+
   return(conc.ret)
 }
 
@@ -182,19 +177,27 @@ inv_digamma <- function(x) {
     g <- exp(x)+0.5
   }
   
-  for(i in 1:4) {
-    g <- g - (digamma(x)-x)/trigamma(x)
+  for(i in 1:5) {
+    g <- g - (digamma(g)-x)/trigamma(g)
   }
   
   return(g)
 }
 
 
-map_conc <- function(conc, p.shape, Q, n.tab, dsct) {
+map_conc <- function(conc, p.shape, Q, n.tab, dsct, err.tol=1e-4, max.iter=10) {
   J <- length(n.tab)
-  p <- sum(digamma(n.tab+conc/dsct))
-  p <- p/J + dsct*(p.shape-1)/(conc*J) - dsct*Q/J
-  return(dsct*inv_digamma(p))
+  i <- 1
+  conc.old <- conc*1.1
+  while (i < max.iter & abs((conc-conc.old)/conc) > err.tol) {
+    #print(conc)
+    conc.old <- conc
+    p <- sum(digamma(n.tab+conc/dsct))
+    p <- p + dsct*(p.shape-1)/(conc) - dsct*Q
+    conc <- dsct*inv_digamma(p/J)
+    i <- i + 1
+  }
+  return(conc)
 }
 
 prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
@@ -203,60 +206,60 @@ prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
   return(log_prob)
 }
 
-# Slice sample procedure based on Neal 2003
-slice_conc <- function(conc.map, p.shape, Q, n.tab, dsct, sl.size, max.size) {
-  y.slice <- runif(1, 0, prob_conc(conc.map, p.shape, Q, n.tab, dsct))
-  bounds <- find_bounds(y, p.shape, Q, n.tab, dsct, sl.size, max.size)
+# Slice sampler for concentration parameter
+slice_conc <- function(conc.map, p.shape, Q, n.tab, dsct, iter=5, max.conc=2000) {
+  bounds <- c(1e-10, max.conc)
+  conc <- conc.map
   
-  samp <- runif(1, bounds[1], bounds[2])
-  if (TRUE) {
-    # ACCEPT
-  } else {
-    # REJECT AND TRY AGAIN
-  }
-  
-  return(samp)
-}
-
-# Find the bounds of a slice
-find_bounds <- function(conc.map, y, p.shape, Q, n.tab, dsct, sl.size, max.size) {
-  U <- runif(1)
-  V <- runif(1)
-  L <- conc.map - sl.size*U
-  R <- L + sl.size
-  J <- floor(max.size*V)
-  K <- (max.size - 1) - J
-  
-  # Finding left bound
-  while (J > 0 & y < prob_conc(L, p.shape, Q, n.tab, dsct)) {
-    L <- L - sl.size
-    J <- J - 1
-    if (L<=0) {
-      L <- 0
-      break()
+  for (i in 1:iter) {
+    print(conc)
+    y <- prob_conc(conc, p.shape, Q, n.tab, dsct)
+    l <- bounds[1]
+    r <- bounds[2]
+    y <- y + log(runif(1))
+    accept <- FALSE
+    while (!accept) {
+      conc.try <- l + runif(1)*(r-l)
+      if (prob_conc(conc.try, p.shape, Q, n.tab, dsct) > y) {
+        conc <- conc.try
+        break()
+      } else {
+        if (conc.try < conc) {
+          l <- conc.try
+        } else {
+          r <- conc.try
+        }
+      }
     }
   }
   
-  # Finding right bound
-  while (K > 0 & y < prob_conc(R, p.shape, Q, n.tab, dsct)) {
-    R <- R + sl.size
-    K <- K - 1
-  }
-  
-  return(c(L,R))
+  return(conc)
 }
 
-
-iter <- 50
-mc <- c(1, rep(0, iter-1))
-for (i in 2:iter) {
-  mc[i] <- map_conc(mc[i-1], p.shape, Q, n.tab, dsct)
-}
-
-xv <- seq(0.1,10, by=0.1)
-yv <- rep(0, length(xv))
-for (i in 1:length(xv)) {
-  yv[i] <- prob_conc(xv[i], p.shape, Q, n.tab, dsct)
-}
-plot(xv, yv, type="l")
-
+# Find the bounds of a slice
+# find_bounds <- function(conc.map, y, p.shape, Q, n.tab, dsct, sl.size, max.size) {
+#   U <- runif(1)
+#   V <- runif(1)
+#   L <- conc.map - sl.size*U
+#   R <- L + sl.size
+#   J <- floor(max.size*V)
+#   K <- (max.size - 1) - J
+#   
+#   # Finding left bound
+#   while (J > 0 & y < prob_conc(L, p.shape, Q, n.tab, dsct)) {
+#     L <- L - sl.size
+#     J <- J - 1
+#     if (L<=0) {
+#       L <- 0
+#       break()
+#     }
+#   }
+#   
+#   # Finding right bound
+#   while (K > 0 & y < prob_conc(R, p.shape, Q, n.tab, dsct)) {
+#     R <- R + sl.size
+#     K <- K - 1
+#   }
+#   
+#   return(c(L,R))
+# }
