@@ -155,10 +155,11 @@ samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
   q <- rbeta(length(n), conc, n)
   Q <- 1/p.scale - sum(log(q))
   
-  conc <- map_conc(conc, p.shape, Q, n.tab, dsct)
-  conc <- slice_conc()
+  conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
+  p.map <- prob_conc(conc.map, p.shape, Q, n.tab, dsct)
+  conc.ret <- slice_conc(conc.map, p.map) #TODO
   
-  return(conc)
+  return(conc.ret)
 }
 
 
@@ -194,7 +195,7 @@ map_conc <- function(conc, p.shape, Q, n.tab, dsct) {
 
 prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
   log_prob <- -conc*Q+(p.shape-1)*log(conc)
-  log_prob <- log_prob + sum(gamma(n.tab+conc/dsct) - gamma(conc/dsct))
+  log_prob <- log_prob + sum(lgamma(n.tab+conc/dsct) - lgamma(conc/dsct))
   return(log_prob)
 }
 
