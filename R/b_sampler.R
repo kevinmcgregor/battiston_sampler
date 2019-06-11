@@ -150,17 +150,22 @@ py_top <- function(gamma.c, alpha.c) {
 #'
 #' @examples
 samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
+  max.conc <- 2000
   
   # Sample auxiliary Beta variables
   q <- rbeta(length(n), conc, n)
   Q <- 1/p.scale - sum(log(q))
   
   conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
-  conc.ret <- slice_conc(conc.map, p.shape, Q, n.tab, dsct)
+  conc.ret <- slice(conc.map, prob_conc, max=max.conc, p.shape=p.shape, 
+                         Q=Q, n.tab=n.tab, dsct=dsct)
 
   return(conc.ret)
 }
 
+samp_dsct <- function() {
+  #TODO
+}
 
 #' Inverse digamma function
 #'
@@ -206,34 +211,46 @@ prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
   return(log_prob)
 }
 
-# Slice sampler for concentration parameter
-slice_conc <- function(conc.map, p.shape, Q, n.tab, dsct, iter=5, max.conc=2000) {
-  bounds <- c(1e-10, max.conc)
-  conc <- conc.map
+#' Slice sampler for a single parameter
+#'
+#' @param map Initial value of parameter, usually an MAP estimate
+#' @param l.prob Log-probability density function for parameter
+#' @param iter Number of iterations to run slice sampler (can be small)
+#' @param min Minimum bound for parameter
+#' @param max Maximum bound for parameter
+#' @param ... Arguments passed on to l.prob()
+#'
+#' @return A sample from the distribution characterized by l.prob()
+#' @export
+#'
+#' @examples
+slice <- function(map, l.prob, iter=5, min=0, max, ...) {
+  bounds <- c(1e-10, max)
+  x <- map
   
   for (i in 1:iter) {
-    print(conc)
-    y <- prob_conc(conc, p.shape, Q, n.tab, dsct)
+    #print(conc)
+    y <- l.prob(x, ...)
     l <- bounds[1]
     r <- bounds[2]
     y <- y + log(runif(1))
     accept <- FALSE
     while (!accept) {
-      conc.try <- l + runif(1)*(r-l)
-      if (prob_conc(conc.try, p.shape, Q, n.tab, dsct) > y) {
-        conc <- conc.try
-        break()
+      x.try <- l + runif(1)*(r-l)
+      if (l.prob(x.try, ...) > y) {
+        x <- x.try
+        accept <- TRUE
       } else {
-        if (conc.try < conc) {
-          l <- conc.try
+        if (x.try < x) {
+          l <- x.try
         } else {
-          r <- conc.try
+          r <- x.try
         }
       }
     }
   }
   
-  return(conc)
+  return(x)
 }
 
 # Find the bounds of a slice
