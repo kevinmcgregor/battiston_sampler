@@ -155,8 +155,8 @@ samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
   q <- rbeta(length(n), conc, n)
   Q <- 1/p.scale - sum(log(q))
   
-  conc <- map_conc(conc, p.shape, Q, n.tab, dsct)
-  conc <- slice_conc()
+  conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
+  conc <- slice_conc(conc.map, p.shape, Q, n.tab, dsct)
   
   return(conc)
 }
@@ -194,8 +194,64 @@ map_conc <- function(conc, p.shape, Q, n.tab, dsct) {
 
 prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
   log_prob <- -conc*Q+(p.shape-1)*log(conc)
-  log_prob <- log_prob + sum(gamma(n.tab+conc/dsct) - gamma(conc/dsct))
+  log_prob <- log_prob + sum(lgamma(n.tab+conc/dsct) - lgamma(conc/dsct))
   return(log_prob)
 }
 
+# Slice sample procedure based on Neal 2003
+slice_conc <- function(conc.map, p.shape, Q, n.tab, dsct, sl.size, max.size) {
+  y.slice <- runif(1, 0, prob_conc(conc.map, p.shape, Q, n.tab, dsct))
+  bounds <- find_bounds(y, p.shape, Q, n.tab, dsct, sl.size, max.size)
+  
+  samp <- runif(1, bounds[1], bounds[2])
+  if (TRUE) {
+    # ACCEPT
+  } else {
+    # REJECT AND TRY AGAIN
+  }
+  
+  return(samp)
+}
+
+# Find the bounds of a slice
+find_bounds <- function(conc.map, y, p.shape, Q, n.tab, dsct, sl.size, max.size) {
+  U <- runif(1)
+  V <- runif(1)
+  L <- conc.map - sl.size*U
+  R <- L + sl.size
+  J <- floor(max.size*V)
+  K <- (max.size - 1) - J
+  
+  # Finding left bound
+  while (J > 0 & y < prob_conc(L, p.shape, Q, n.tab, dsct)) {
+    L <- L - sl.size
+    J <- J - 1
+    if (L<=0) {
+      L <- 0
+      break()
+    }
+  }
+  
+  # Finding right bound
+  while (K > 0 & y < prob_conc(R, p.shape, Q, n.tab, dsct)) {
+    R <- R + sl.size
+    K <- K - 1
+  }
+  
+  return(c(L,R))
+}
+
+
+iter <- 50
+mc <- c(1, rep(0, iter-1))
+for (i in 2:iter) {
+  mc[i] <- map_conc(mc[i-1], p.shape, Q, n.tab, dsct)
+}
+
+xv <- seq(0.1,10, by=0.1)
+yv <- rep(0, length(xv))
+for (i in 1:length(xv)) {
+  yv[i] <- prob_conc(xv[i], p.shape, Q, n.tab, dsct)
+}
+plot(xv, yv, type="l")
 
