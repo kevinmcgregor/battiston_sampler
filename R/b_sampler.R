@@ -190,6 +190,35 @@ inv_digamma <- function(x) {
 }
 
 
+#' Compute log of generalized Stirling numbers
+#'
+#' @return
+#' @export
+#'
+#' @examples
+logStirling <- function(N, M, a) {
+  if (N <= 0 | floor(N)!=N | !is.numeric(N)) stop("N must be a positive integer")
+  if (M <= 0 | M > N | floor(M)!=M | !is.numeric(M)) stop("M must be a positive integer with M<=N")
+  if (!is.numeric(a) | a<=0 | a>=1) stop("a must be numeric and between 0 and 1")
+  
+  # At which value of N should we use the asymptotic form?
+  N.asymp <- 64
+  
+  if (N==M) {
+    r <- 0
+  } else if (M==1) {
+    r <- lgamma(N-a)-lgamma(1-a)
+  } else if (N>=N.asymp) {
+    r <- lgamma(N)-lgamma(1-a)-lgamma(M)-(M-1)*log(a)-a*log(N)
+  } else {
+    s1 <- sum(unlist(lapply(1:(N-M+1), logStirling, M=1, a=a)))
+    r <- s1
+  }
+  
+  return(r)
+}
+
+
 map_conc <- function(conc, p.shape, Q, n.tab, dsct, err.tol=1e-4, max.iter=10) {
   J <- length(n.tab)
   i <- 1
@@ -225,7 +254,7 @@ prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
 #'
 #' @examples
 slice <- function(map, l.prob, iter=5, min=0, max, ...) {
-  bounds <- c(1e-10, max)
+  bounds <- c(min, max)
   x <- map
   
   for (i in 1:iter) {
