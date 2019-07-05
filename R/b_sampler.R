@@ -10,9 +10,11 @@
 #'
 #' @return
 #' @export
+#' @importFrom parallel mclapply
 #'
 #' @examples
-b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
+b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale, 
+                      mc.cores=1, quiet=FALSE) {
   if (!is.numeric(Y) | !is.matrix(Y) |
       any(Y<0) | any(Y!=floor(Y))) stop("Y must be a numeric matrix of positive counts")
   
@@ -20,10 +22,10 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   K <- NCOL(Y) # Number of distinct species in joint sample
   
   # Initializing PY parameters
-  gamma <- 3 # Top-level concentation
-  alpha <- 0.8 # Top-level discount
-  theta <- rep(1000, J) # Population-level concentration
-  sigma <- rep(0.5, J) # Population-level discount
+  gamma <- 1 # Top-level concentation
+  alpha <- 0.2 # Top-level discount
+  theta <- rep(5, J) # Population-level concentration
+  sigma <- rep(0.3, J) # Population-level discount
   
   # Initializing table info
   sp.vec <- vector("list", length=J)
@@ -39,6 +41,7 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
     t.c[[j]] <- cbind((1:K)[Y[j,]>0], Y[j,][Y[j,]>0])
     n.tab[j] <- NROW(t.c[[j]])
   }
+  mc.list <- vector("list", length=J) # List for mclapply
   
   gamma.s <- rep(0, n.iter)
   alpha.s <- rep(0, n.iter)
@@ -49,6 +52,7 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   
   # Loop over MCMC iterations
   for (i in 1:(n.burn+n.iter)) {
+    cat("i =", i, "\n")
     idx <- i - n.burn
     
     if (!quiet & i==1) cat("Beginning burn-in:", "\n")
@@ -57,6 +61,7 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
     
     # Loop over populations
     for (j in 1:J) {
+      #cat("j =", j, "\n")
       # Loop over individuals in a population
       for (p in 1:n[j]){
         sp.cur <- sp.vec[[j]][p]
@@ -95,11 +100,22 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
         }
       }
       
-      # Sample local-level PY parameters
-      s.local <- py_local(theta[j], sigma[j])
-      theta[j] <- s.local$theta
-      sigma[j] <- s.local$sigma
+      # Putting relevant quantities into list for use in mclapply
+      mc.list[[j]] <- list(conc=theta[j],n.tab=n.tab[j],n=n[j],
+                           dsct=sigma[j], n.s.tab=n.s.tab[j,,drop=FALSE],
+                           Y=Y[j,,drop=FALSE], J=1, p.shape=p.shape,
+                           p.scale=p.scale)
       
+      # theta[j] <- samp_conc(theta[j], p.shape, p.scale, n.tab[j], 1, n[j], sigma[j])
+      # sigma[j] <- samp_dsct(sigma[j], theta[j], n.tab[j], 
+      #                       n.s.tab[j,,drop=FALSE], Y[j,,drop=FALSE]) 
+    }
+    
+    # Sample local-level PY parameters
+    theta <- unlist(parallel::mclapply(mc.list, samp_conc_list, mc.cores = mc.cores))
+    sigma <- unlist(parallel::mclapply(mc.list, samp_dsct_list, mc.cores = mc.cores))
+    
+    for (j in 1:J) {
       if (i>n.burn) {
         theta.s[idx,j] <- theta[j]
         sigma.s[idx,j] <- sigma[j]
@@ -108,10 +124,9 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
     }
     
     # Sample top-level PY parameters
-    s.top <- py_top(gamma, alpha)
-    gamma <- s.top$gamma
-    alpha <- s.top$alpha
-    
+    gamma <- samp_conc(gamma, p.shape, p.scale, n.tab, J, n, alpha)
+    alpha <- samp_dsct(alpha, gamma, n.tab, n.s.tab, Y) 
+    # 
     if (i>n.burn) {
       gamma.s[idx] <- gamma
       alpha.s[idx] <- alpha
@@ -120,23 +135,8 @@ b_sampler <- function(Y, n.iter, n.burn, quiet=FALSE) {
   }
   
   return(list(gamma=gamma.s, alpha=alpha.s, theta=theta.s, sigma=sigma.s,
-              tab=tab, t.c=t.c, n.tab=n.tab.s, n.s.tab=n.s.tab.s))
-}
-
-# TODO
-py_local <- function(theta.c, sigma.c) {
-  theta <- theta.c
-  sigma <- sigma.c
-  
-  return(list(theta=theta, sigma=sigma))
-}
-
-# TODO
-py_top <- function(gamma.c, alpha.c) {
-  gamma <- gamma.c
-  alpha <- alpha.c
-  
-  return(list(gamma=gamma, alpha=alpha))
+              tab=tab, t.c=t.c, n.tab=n.tab.s, n.s.tab=n.s.tab.s,
+              p.shape=p.shape, p.scale=p.scale))
 }
 
 #' Sample the concentration parameter hierarchical in Pitman-Yor process
@@ -149,11 +149,11 @@ py_top <- function(gamma.c, alpha.c) {
 #' @export
 #'
 #' @examples
-samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
+samp_conc <- function(conc, p.shape, p.scale, n.tab, J, n, dsct) {
   max.conc <- 2000
   
   # Sample auxiliary Beta variables
-  q <- rbeta(length(n), conc, n)
+  q <- rbeta(J, conc, n)
   Q <- 1/p.scale - sum(log(q))
   
   conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
@@ -163,8 +163,21 @@ samp_conc <- function(conc, p.shape, p.scale, n.tab, n, dsct) {
   return(conc.ret)
 }
 
-samp_dsct <- function() {
-  #TODO
+# Wrapper function for samp_conc for use in mclapply
+samp_conc_list <- function(l) {
+  samp_conc(l$conc, l$p.shape, l$p.scale, l$n.tab, l$J, l$n, l$dsct)
+}
+
+# Sample discount parameter
+samp_dsct <- function(dsct, conc, n.tab, n.s.tab, Y) {
+  dsct.ret <- slice(dsct, prob_dsct, min=0, max=1, 
+                    conc=conc, n.tab=n.tab, n.s.tab=n.s.tab, Y=Y)
+  return(dsct.ret)
+}
+
+# Wrapper function for samp_dsct for use in mclapply
+samp_dsct_list <- function(l) {
+  samp_dsct(l$dsct, l$conc, l$n.tab, l$n.s.tab, l$Y)
 }
 
 #' Inverse digamma function
@@ -190,34 +203,6 @@ inv_digamma <- function(x) {
 }
 
 
-#' Compute log of generalized Stirling numbers
-#'
-#' @return
-#' @export
-#'
-#' @examples
-logStirling <- function(N, M, a) {
-  if (N <= 0 | floor(N)!=N | !is.numeric(N)) stop("N must be a positive integer")
-  if (M <= 0 | M > N | floor(M)!=M | !is.numeric(M)) stop("M must be a positive integer with M<=N")
-  if (!is.numeric(a) | a<=0 | a>=1) stop("a must be numeric and between 0 and 1")
-  
-  # At which value of N should we use the asymptotic form?
-  N.asymp <- 64
-  
-  if (N==M) {
-    r <- 0
-  } else if (M==1) {
-    r <- lgamma(N-a)-lgamma(1-a)
-  } else if (N>=N.asymp) {
-    r <- lgamma(N)-lgamma(1-a)-lgamma(M)-(M-1)*log(a)-a*log(N)
-  } else {
-    s1 <- sum(unlist(lapply(1:(N-M+1), logStirling, M=1, a=a)))
-    r <- s1
-  }
-  
-  return(r)
-}
-
 
 map_conc <- function(conc, p.shape, Q, n.tab, dsct, err.tol=1e-4, max.iter=10) {
   J <- length(n.tab)
@@ -240,9 +225,45 @@ prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
   return(log_prob)
 }
 
+
+#' Title
+#'
+#' @param dsct 
+#' @param conc 
+#' @param n.tab 
+#' @param n.s.tab 
+#' @param Y 
+#' @param s.table Optional: previously calculated Stirling number table
+#' to reuse for faster computation
+#'
+#' @return
+#' @importFrom gStirling gStirling
+#' @export
+#'
+#' @examples
+prob_dsct <- function(dsct, conc, n.tab, n.s.tab, Y, s.table=NULL) {
+  # Find max Stirling number to calculate
+  mt <- max(n.s.tab)
+  my <- max(Y)
+  if (is.null(s.table)) {
+    s.table <- gStirling::gStirling(my, mt, dsct)
+  }
+
+  # Adding the log-Stirling numbers
+  log_prob <- 0
+  for (i in 1:NROW(Y)) {
+    log_prob <- log_prob + sum(s.table[Y[i,]+my*(n.s.tab[i,]-1)])
+  }
+  
+  log_prob <- log_prob + sum(n.tab*log(dsct)+
+                    lgamma(n.tab+conc/dsct) - lgamma(conc/dsct))
+  
+  return(log_prob)
+}
+
 #' Slice sampler for a single parameter
 #'
-#' @param map Initial value of parameter, usually an MAP estimate
+#' @param map Initial value of parameter, possibly an MAP estimate
 #' @param l.prob Log-probability density function for parameter
 #' @param iter Number of iterations to run slice sampler (can be small)
 #' @param min Minimum bound for parameter
@@ -266,6 +287,7 @@ slice <- function(map, l.prob, iter=5, min=0, max, ...) {
     accept <- FALSE
     while (!accept) {
       x.try <- l + runif(1)*(r-l)
+      if (is.na(l.prob(x.try, ...)) | is.na(y)) browser()
       if (l.prob(x.try, ...) > y) {
         x <- x.try
         accept <- TRUE
@@ -308,4 +330,27 @@ slice <- function(map, l.prob, iter=5, min=0, max, ...) {
 #   }
 #   
 #   return(c(L,R))
+# }
+
+
+# logStirling <- function(N, M, a) {
+#   if (N <= 0 | floor(N)!=N | !is.numeric(N)) stop("N must be a positive integer")
+#   if (M <= 0 | M > N | floor(M)!=M | !is.numeric(M)) stop("M must be a positive integer with M<=N")
+#   if (!is.numeric(a) | a<=0 | a>=1) stop("a must be numeric and between 0 and 1")
+#   
+#   # At which value of N should we use the asymptotic form?
+#   N.asymp <- 64
+#   
+#   if (N==M) {
+#     r <- 0
+#   } else if (M==1) {
+#     r <- lgamma(N-a)-lgamma(1-a)
+#   } else if (N>=N.asymp) {
+#     r <- lgamma(N)-lgamma(1-a)-lgamma(M)-(M-1)*log(a)-a*log(N)
+#   } else {
+#     s1 <- sum(unlist(lapply(1:(N-M+1), logStirling, M=1, a=a)))
+#     r <- s1
+#   }
+#   
+#   return(r)
 # }
