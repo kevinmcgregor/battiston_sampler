@@ -1,0 +1,3 @@
+Warning message:
+In mclapply(Y.list, b_sampler, p.shape = 1, p.scale = 1, n.iter = n.iter,  :
+  all scheduled cores encountered errors in user code

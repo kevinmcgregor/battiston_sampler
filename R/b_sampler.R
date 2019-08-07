@@ -14,7 +14,7 @@
 #'
 #' @examples
 b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale, 
-                      mc.cores=1, quiet=FALSE) {
+                      n.cores=1, quiet=FALSE) {
   if (!is.numeric(Y) | !is.matrix(Y) |
       any(Y<0) | any(Y!=floor(Y))) stop("Y must be a numeric matrix of positive counts")
   
@@ -22,10 +22,11 @@ b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale,
   K <- NCOL(Y) # Number of distinct species in joint sample
   
   # Initializing PY parameters
-  gamma <- 1 # Top-level concentation
-  alpha <- 0.2 # Top-level discount
-  theta <- rep(5, J) # Population-level concentration
-  sigma <- rep(0.3, J) # Population-level discount
+  # CURRENTLY FIXING SOME PARAMS TO SIMULATED VALUES... REMEMBER TO CHANGE BACK
+  gamma <- conc.top #5 # Top-level concentation
+  alpha <- dsct.top #0.5  #0.8 # Top-level discount
+  theta <- rep(1, J) # Population-level concentration
+  sigma <- rep(0.1, J) # Population-level discount
   
   # Initializing table info
   sp.vec <- vector("list", length=J)
@@ -52,68 +53,76 @@ b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale,
   
   # Loop over MCMC iterations
   for (i in 1:(n.burn+n.iter)) {
-    cat("i =", i, "\n")
+    #cat("i =", i, "\n")
     idx <- i - n.burn
     
     if (!quiet & i==1) cat("Beginning burn-in:", "\n")
     if (!quiet & i==n.burn+1) cat("Beginning sampling:", "\n")
     if (!quiet & i%%100==0) cat(" ", i, "\n")
     
+    # TEMP: Setting table info to true values
+    # REMEMBER TO DELETE THIS
+    n.tab <- s.hpy$t.tab
+    n.s.tab <- s.hpy$n.s.tab
+    
     # Loop over populations
     for (j in 1:J) {
       #cat("j =", j, "\n")
-      # Loop over individuals in a population
-      for (p in 1:n[j]){
-        sp.cur <- sp.vec[[j]][p]
-        # Remove current individual from its table
-        t.cur <- tab[[j]][p]
-        t.c[[j]][t.cur,2] <- t.c[[j]][t.cur,2] - 1
-        if (t.c[[j]][t.cur,2]==0) {
-          # Drop table and make adjustments
-          t.c[[j]] <- t.c[[j]][-t.cur,]
-          tab[[j]][tab[[j]]>t.cur] <- tab[[j]][tab[[j]]>t.cur] - 1
-          n.tab[j] <- n.tab[j] - 1
-          n.s.tab[j, sp.cur] <- n.s.tab[j, sp.cur] - 1
-        }
-        
-        # Reassign individual to new or existing table
-        #new.t <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)/
-        #          ((theta[j]+n[j]-1)*(gamma+sum(n.tab)))
-        #prob.unsc <- c(freq.t, new.t)
-        num <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[, sp.cur])-alpha)
-        den <- (gamma+sum(n.tab))*(Y[j,sp.cur]-1-n.s.tab[j, sp.cur]*sigma[j]) +
-                                (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)
-        is.new <- rbinom(1, 1, num/den)
-        #if (is.na(is.new)) browser()
-        if (is.new) {
-          # Allocate new table
-          t.c[[j]] <- rbind(t.c[[j]], c(sp.cur, 1))
-          n.tab[j] <- n.tab[j] + 1
-          n.s.tab[j, sp.cur] <- n.s.tab[j, sp.cur] + 1
-          tab[[j]][p] <- n.tab[j]
-        } else {
-          # Sample existing table (from proper species)
-          freq.t <- ifelse(t.c[[j]][,1]==sp.cur, (t.c[[j]][,2]-sigma[j])/(theta[j]+n[j]-1), 0)
-          wh.t <- sample(1:length(freq.t), 1, prob=freq.t)
-          t.c[[j]][wh.t, 2] <- t.c[[j]][wh.t, 2] + 1
-          tab[[j]][p] <- wh.t
-        }
-      }
-      
+      #Loop over individuals in a population
+      # for (p in 1:n[j]){
+      #   sp.cur <- sp.vec[[j]][p]
+      #   # Remove current individual from its table
+      #   t.cur <- tab[[j]][p]
+      #   t.c[[j]][t.cur,2] <- t.c[[j]][t.cur,2] - 1
+      #   if (t.c[[j]][t.cur,2]==0) {
+      #     # Drop table and make adjustments
+      #     t.c[[j]] <- t.c[[j]][-t.cur,]
+      #     tab[[j]][tab[[j]]>t.cur] <- tab[[j]][tab[[j]]>t.cur] - 1
+      #     n.tab[j] <- n.tab[j] - 1
+      #     n.s.tab[j, sp.cur] <- n.s.tab[j, sp.cur] - 1
+      #   }
+      # 
+      #   # Reassign individual to new or existing table
+      #   #new.t <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)/
+      #   #          ((theta[j]+n[j]-1)*(gamma+sum(n.tab)))
+      #   #prob.unsc <- c(freq.t, new.t)
+      #   num <- (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[, sp.cur])-alpha)
+      #   den <- (gamma+sum(n.tab))*(Y[j,sp.cur]-1-n.s.tab[j, sp.cur]*sigma[j]) +
+      #                           (theta[j]+n.tab[j]*sigma[j])*(sum(n.s.tab[,sp.cur])-alpha)
+      #   is.new <- rbinom(1, 1, num/den)
+      #   #if (is.na(is.new)) browser()
+      #   if (is.new) {
+      #     # Allocate new table
+      #     t.c[[j]] <- rbind(t.c[[j]], c(sp.cur, 1))
+      #     n.tab[j] <- n.tab[j] + 1
+      #     n.s.tab[j, sp.cur] <- n.s.tab[j, sp.cur] + 1
+      #     tab[[j]][p] <- n.tab[j]
+      #   } else {
+      #     # Sample existing table (from proper species)
+      #     freq.t <- ifelse(t.c[[j]][,1]==sp.cur, (t.c[[j]][,2]-sigma[j])/(theta[j]+n[j]-1), 0)
+      #     wh.t <- sample(1:length(freq.t), 1, prob=freq.t)
+      #     t.c[[j]][wh.t, 2] <- t.c[[j]][wh.t, 2] + 1
+      #     tab[[j]][p] <- wh.t
+      #   }
+      # }
+
       # Putting relevant quantities into list for use in mclapply
       mc.list[[j]] <- list(conc=theta[j],n.tab=n.tab[j],n=n[j],
                            dsct=sigma[j], n.s.tab=n.s.tab[j,,drop=FALSE],
                            Y=Y[j,,drop=FALSE], J=1, p.shape=p.shape,
                            p.scale=p.scale)
-      
-      # theta[j] <- samp_conc(theta[j], p.shape, p.scale, n.tab[j], 1, n[j], sigma[j])
-      # sigma[j] <- samp_dsct(sigma[j], theta[j], n.tab[j], 
-      #                       n.s.tab[j,,drop=FALSE], Y[j,,drop=FALSE]) 
+
+      #sigma[j] <- samp_dsct(sigma[j], theta[j], n.tab[j],
+      #                      n.s.tab[j,,drop=FALSE], Y[j,,drop=FALSE])
+      sigma[j] <- gStirling::sampDsct(sigma[j], K, n.tab[j], 
+                                      Y[j,,drop=FALSE], n.s.tab[j,,drop=FALSE], theta[j])
+      #theta[j] <- samp_conc(theta[j], p.shape, p.scale, n.tab[j], 1, n[j], sigma[j])
+      theta[j] <- gStirling::sampConc(theta[j], n[j], n.tab[j], p.shape, p.scale, sigma[j])
     }
     
     # Sample local-level PY parameters
-    theta <- unlist(parallel::mclapply(mc.list, samp_conc_list, mc.cores = mc.cores))
-    sigma <- unlist(parallel::mclapply(mc.list, samp_dsct_list, mc.cores = mc.cores))
+    #theta <- unlist(parallel::mclapply(mc.list, samp_conc_list, mc.cores = n.cores))
+    #sigma <- unlist(parallel::mclapply(mc.list, samp_dsct_list, mc.cores = n.cores))
     
     for (j in 1:J) {
       if (i>n.burn) {
@@ -124,9 +133,15 @@ b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale,
     }
     
     # Sample top-level PY parameters
-    gamma <- samp_conc(gamma, p.shape, p.scale, n.tab, J, n, alpha)
-    alpha <- samp_dsct(alpha, gamma, n.tab, n.s.tab, Y) 
-    # 
+    # Discount
+    #sp.tab.totals <- matrix(apply(n.s.tab, 2, sum), ncol=K)
+    #alpha <- samp_dsct(alpha, gamma, K, matrix(1,ncol=K), sp.tab.totals)
+    #alpha <- gStirling::sampDsct(alpha, K, K, sp.tab.totals, t(rep(1, K)), gamma)
+
+    # Concentration
+    #gamma <- samp_conc(gamma, p.shape, p.scale, K, 1, sum(n.tab), alpha)
+    #gamma <- gStirling::sampConc(gamma, sum(n.tab), K, p.shape, p.scale, alpha)
+    
     if (i>n.burn) {
       gamma.s[idx] <- gamma
       alpha.s[idx] <- alpha
@@ -149,14 +164,18 @@ b_sampler <- function(Y, n.iter, n.burn, p.shape, p.scale,
 #' @export
 #'
 #' @examples
-samp_conc <- function(conc, p.shape, p.scale, n.tab, J, n, dsct) {
+samp_conc <- function(conc, p.shape, p.scale, n.tab, J, n, dsct, Q=NULL) {
   max.conc <- 2000
   
   # Sample auxiliary Beta variables
-  q <- rbeta(J, conc, n)
-  Q <- 1/p.scale - sum(log(q))
+  if (is.null(Q)) {
+    q <- rbeta(J, conc, n)
+    Q <- 1/p.scale - sum(log(q))
+  }
+  #cat("Q = ", Q, "\n")
   
   conc.map <- map_conc(conc, p.shape, Q, n.tab, dsct)
+  #cat("conc.map = ", conc.map, "\n")
   conc.ret <- slice(conc.map, prob_conc, max=max.conc, p.shape=p.shape, 
                          Q=Q, n.tab=n.tab, dsct=dsct)
 
@@ -170,7 +189,7 @@ samp_conc_list <- function(l) {
 
 # Sample discount parameter
 samp_dsct <- function(dsct, conc, n.tab, n.s.tab, Y) {
-  dsct.ret <- slice(dsct, prob_dsct, min=0, max=1, 
+  dsct.ret <- slice(dsct, prob_dsct, min=0, max=1, iter=10,
                     conc=conc, n.tab=n.tab, n.s.tab=n.s.tab, Y=Y)
   return(dsct.ret)
 }
@@ -220,8 +239,9 @@ map_conc <- function(conc, p.shape, Q, n.tab, dsct, err.tol=1e-4, max.iter=10) {
 }
 
 prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
+  lg <- lgamma(conc/dsct)
   log_prob <- -conc*Q+(p.shape-1)*log(conc)
-  log_prob <- log_prob + sum(lgamma(n.tab+conc/dsct) - lgamma(conc/dsct))
+  log_prob <- log_prob + sum(lgamma(n.tab+conc/dsct) - lg)
   return(log_prob)
 }
 
@@ -242,6 +262,8 @@ prob_conc <- function(conc, p.shape, Q, n.tab, dsct) {
 #'
 #' @examples
 prob_dsct <- function(dsct, conc, n.tab, n.s.tab, Y, s.table=NULL) {
+  #if (is.na(dsct)) browser()
+  
   # Find max Stirling number to calculate
   mt <- max(n.s.tab)
   my <- max(Y)
@@ -252,11 +274,12 @@ prob_dsct <- function(dsct, conc, n.tab, n.s.tab, Y, s.table=NULL) {
   # Adding the log-Stirling numbers
   log_prob <- 0
   for (i in 1:NROW(Y)) {
-    log_prob <- log_prob + sum(s.table[Y[i,]+my*(n.s.tab[i,]-1)])
+    wh.pos <- which(Y[i,]>0)
+    log_prob <- log_prob + sum(s.table[Y[i,wh.pos]+my*(n.s.tab[i,wh.pos]-1)])
   }
   
-  log_prob <- log_prob + sum(n.tab*log(dsct)+
-                    lgamma(n.tab+conc/dsct) - lgamma(conc/dsct))
+  lg <- lgamma(conc/dsct)
+  log_prob <- log_prob + sum(n.tab*log(dsct) + lgamma(n.tab+conc/dsct) - lg)
   
   return(log_prob)
 }
@@ -277,9 +300,8 @@ prob_dsct <- function(dsct, conc, n.tab, n.s.tab, Y, s.table=NULL) {
 slice <- function(map, l.prob, iter=5, min=0, max, ...) {
   bounds <- c(min, max)
   x <- map
-  
+  #cat("start:\n")
   for (i in 1:iter) {
-    #print(conc)
     y <- l.prob(x, ...)
     l <- bounds[1]
     r <- bounds[2]
@@ -287,10 +309,12 @@ slice <- function(map, l.prob, iter=5, min=0, max, ...) {
     accept <- FALSE
     while (!accept) {
       x.try <- l + runif(1)*(r-l)
+      #cat("l = ", l, ", x.try = ", x.try, ", r = ", r, "\n")
       if (is.na(l.prob(x.try, ...)) | is.na(y)) browser()
       if (l.prob(x.try, ...) > y) {
         x <- x.try
         accept <- TRUE
+        #cat("sample=", x, "\n")
       } else {
         if (x.try < x) {
           l <- x.try
@@ -302,6 +326,40 @@ slice <- function(map, l.prob, iter=5, min=0, max, ...) {
   }
   
   return(x)
+}
+
+
+#' Get Simpson's diversity index based on estimated hierarchical Pitman-Yor model
+#'
+#' @return
+#' @export
+#'
+#' @examples
+getSimpson <- function(tab, n.s.tab, pop, c.top, d.top, c.local, d.local) {
+  
+  # Current table frequencies
+  c.tab <- tab[[pop]]
+  n.tab <- NROW(c.tab)
+  n.j <- sum(c.tab[,2])
+  n.tab.sp <- colSums(n.s.tab) # Number of tables of each species in each population
+  tot.tab <- sum(n.tab.sp) # Number of tables overall
+  K <- NCOL(n.tab.sp)
+  
+  index <- 0
+  for (t in 1:n.tab) {
+    c.sp <- c.tab[t, 1] # Get species for this table
+    t.ss <- which(c.tab[,1]==c.sp) # Which other tables are of the same species as the current one?
+    t.ss <- t.ss[t.ss!=t]
+    t.t.sp <- lapply(tab, function(x){sum(x[x[1,]==c.sp,2])})
+    incr <- (c.tab[t,2]-d.local)/(c.local+n.j-1)*((c.tab[t,2]+1-d.local)/(c.local+n.j)+
+              sum((c.tab[t.ss,2]-d.local)/(c.local+n.j-1))+
+              (c.local+n.tab*d.local)/(c.local+n.j)*(c.local+n.tab*d.local)/(c.local+n.j)*(n.tab.sp[c.sp]-d.top)/(c.top+tot.tab-1))+
+        (c.local+n.tab*d.local)/(c.local+n.j-1)*((c.top+K*d.top)/(c.top+tot.tab-1)*((1-d.local)/(c.local+n.j)+(c.local+(n.tab+1)*d.local)/(c.local+n.j)*(1-d.top)/(c.top+tot.tab))+
+        (n.tab.sp[c.sp]-d.top)/(c.top+tot.tab-1)*((1-d.local)/(c.local+n.j)+sum((c.tab[t.ss,2]-d.local)/(c.local+n.j-1))+(c.local+(n.tab+1)*d.local)/(c.local+n.j)*(n.tab.sp[c.sp]+1-d.top)/(c.top+tot.tab)))
+    index <- index + incr
+  }
+  
+  return(1-index)
 }
 
 # Find the bounds of a slice

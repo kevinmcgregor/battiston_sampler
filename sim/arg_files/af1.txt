@@ -1,0 +1,7 @@
+1000
+10
+1
+0.2
+5
+0.3
+/mnt/GREENWOOD_SCRATCH/kevin.mcgregor/pitman_yor/battiston_sampler/sim
